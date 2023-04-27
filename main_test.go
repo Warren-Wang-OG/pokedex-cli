@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// TODO: write more tests
+
 func TestAddGet(t *testing.T) {
 	const interval = 5 * time.Second
 	cases := []struct {

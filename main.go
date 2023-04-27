@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,11 +125,9 @@ func helpCommand() error {
 	fmt.Println("exit - Exit the CLI")
 	fmt.Println("map - Displays the names of the next 20 location areas")
 	fmt.Println("mapb - Displays the names of the previous 20 location areas")
+	fmt.Println("explore [location] - show all pokemon in a location")
 	return nil
 }
-
-//FIXME: some bug with the caching and
-// getting: Get "": unsupported protocol scheme ""
 
 // use pokedex API to get the names of 20 location areas
 // and print the names of the 20 location areas
@@ -142,16 +141,12 @@ func mapCommand(args ...interface{}) error {
 	locationAreasBytes, ok := cache.Get(url)
 
 	if ok {
-		// fmt.Println("in cache")
-
 		// convert the bytes to a struct
 		err := json.Unmarshal(locationAreasBytes, &locationAreas)
 		if err != nil {
 			return err
 		}
 	} else {
-		// fmt.Println("not in cache")
-
 		resp, err := http.Get(url)
 		if err != nil {
 			return err
@@ -172,9 +167,6 @@ func mapCommand(args ...interface{}) error {
 		}
 		// save the bytes in the cache
 		cache.Add(url, locationAreasBytes)
-		// fmt.Printf("cached url=[%s] with the contents [%v]", url, locationAreasBytes)
-
-		// fmt.Printf("cache entries: %v\n", cache.entries)
 	}
 
 	// print the names of the 20 location areas
@@ -185,9 +177,6 @@ func mapCommand(args ...interface{}) error {
 	// update the mapConfig next and previous fields
 	mapConfig.Next = &locationAreas.Next
 	mapConfig.Previous = &locationAreas.Previous
-
-	// fmt.Println("next: ", *mapConfig.Next)
-	// fmt.Println("previous: ", *mapConfig.Previous)
 
 	return nil
 }
@@ -202,8 +191,6 @@ func mapbCommand(args ...interface{}) error {
 	}
 
 	url := *mapConfig.Previous
-	// fmt.Printf("url: %s\n", url)
-
 	cache := args[1].(*Cache)
 	var locationAreas LocationAreas
 
@@ -211,8 +198,6 @@ func mapbCommand(args ...interface{}) error {
 	locationAreasBytes, ok := cache.Get(url)
 
 	if ok {
-		// fmt.Println("in cache")
-
 		// convert the bytes to a struct
 		err := json.Unmarshal(locationAreasBytes, &locationAreas)
 		if err != nil {
@@ -220,8 +205,6 @@ func mapbCommand(args ...interface{}) error {
 		}
 
 	} else {
-		// fmt.Println("not in cache")
-
 		resp, err := http.Get(url)
 		if err != nil {
 			return err
@@ -253,6 +236,70 @@ func mapbCommand(args ...interface{}) error {
 	// update the mapConfig next and previous fields
 	mapConfig.Next = &locationAreas.Next
 	mapConfig.Previous = &locationAreas.Previous
+
+	return nil
+}
+
+type ExploreRequest struct {
+	Id       int    `json:"id"`
+	Name     string `json:"name"`
+	Location struct {
+		Name string `json:"name"`
+	} `json:"location_area"`
+	Pokemon_encounters []struct {
+		Pokemon struct {
+			Id   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"pokemon"`
+		VersionDetails []struct {
+			Rate int `json:"rate"`
+		} `json:"version_details"`
+	} `json:"pokemon_encounters"`
+}
+
+// show all pokemon in a location
+func exploreCommand(args ...interface{}) error {
+	location := args[0].(string)
+	cache := args[1].(*Cache)
+	location_url := fmt.Sprintf("https://pokeapi.co/api/v2/location-area/%s", location)
+	var exploreRequest ExploreRequest
+
+	// check if the location is in the cache
+	exploreRequestBytes, ok := cache.Get(location)
+	if ok {
+		// convert the bytes to a struct
+		err := json.Unmarshal(exploreRequestBytes, &exploreRequest)
+		if err != nil {
+			return err
+		}
+	} else {
+		resp, err := http.Get(location_url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		// decode the response body into a struct
+		err = json.NewDecoder(resp.Body).Decode(&exploreRequest)
+		if err != nil {
+			return err
+		}
+
+		// save in cache
+		// convert the struct to bytes
+		exploreRequestBytes, err := json.Marshal(exploreRequest)
+		if err != nil {
+			return err
+		}
+		cache.Add(location, exploreRequestBytes)
+	}
+
+	// print the pokemon
+	fmt.Println("Exploring", exploreRequest.Name)
+	fmt.Println("Pokemon encounters:")
+	for _, pokemon := range exploreRequest.Pokemon_encounters {
+		fmt.Println("-", pokemon.Pokemon.Name)
+	}
 
 	return nil
 }
@@ -293,6 +340,12 @@ func main() {
 		callback:    ParamFunc(mapbCommand),
 	}
 
+	cmdHandler["explore"] = Command{
+		name:        "explore",
+		description: "show all pokemon in a location",
+		callback:    ParamFunc(exploreCommand),
+	}
+
 	// REPL loop
 	for {
 		fmt.Print("pokedex > ")
@@ -300,8 +353,31 @@ func main() {
 		input := bufio.NewScanner(os.Stdin)
 		input.Scan()
 		cmd := input.Text()
+		if cmd == "" {
+			continue
+		}
+		params := strings.Split(cmd, " ")
 
-		// try except
+		// ---------- explore ----------
+		if len(params) == 2 {
+			if params[0] != "explore" {
+				fmt.Println("Command not found")
+				continue
+			}
+
+			err := cmdHandler[params[0]].callback.Execute(params[1], cache)
+			if err != nil {
+				fmt.Println(err)
+			}
+			continue
+		}
+		// ---------- explore ----------
+
+		if cmd == "explore" {
+			fmt.Println("Please enter a location")
+			continue
+		}
+
 		if cmd == "map" || cmd == "mapb" {
 			err := cmdHandler[cmd].callback.Execute(&mapConfig, cache)
 			if err != nil {
