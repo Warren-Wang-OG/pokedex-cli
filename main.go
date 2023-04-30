@@ -374,7 +374,7 @@ func catchCommand(args ...interface{}) error {
 	// use a random chance scaled by pokemon's base experience (higher the experience, the lower the chance) to catch the pokemon
 	rollVal := rand.Intn(1000) + 1
 	chance := (1000.0 - float64(pokemonStruct.Base_experience)) / 1000.0
-	fmt.Println("Trying to catch", pokemonStruct.Name, "with a probably of success", chance)
+	fmt.Println("Trying to catch", pokemonStruct.Name, "with a probability of success", chance)
 	if rollVal > pokemonStruct.Base_experience {
 		fmt.Println("You caught", pokemonStruct.Name)
 		pokedex[pokemonStruct.Name] = pokemonStruct
